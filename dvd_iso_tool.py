@@ -74,6 +74,8 @@ class DVDtoISOConverter:
         self.last_speed_bytes = 0
         self.current_speed = 0
         self.disc_info_var = tk.StringVar(value="")
+        self.elapsed_timer_id = None  # For independent elapsed time updates
+        self.activity_counter = 0  # For activity indicator animation
         
         self.setup_window()
         self.create_ui()
@@ -330,6 +332,37 @@ class DVDtoISOConverter:
         selected = self.log_level_combo.get()
         self.log_level.set(level_map.get(selected, 1))
         self.log(f"Log level changed to: {selected}")
+
+    def start_elapsed_timer(self):
+        """Start the independent elapsed time timer."""
+        self.update_elapsed_time()
+
+    def update_elapsed_time(self):
+        """Update elapsed time display independently of progress."""
+        if self.is_converting and self.start_time:
+            elapsed = (datetime.now() - self.start_time).total_seconds()
+            m, sec = divmod(int(elapsed), 60)
+            h, m = divmod(m, 60)
+            if h > 0:
+                time_str = f"{h}:{m:02d}:{sec:02d}"
+            else:
+                time_str = f"{m:02d}:{sec:02d}"
+            self.time_label.configure(text=f"Elapsed: {time_str}")
+
+            # Update activity indicator in status
+            self.activity_counter = (self.activity_counter + 1) % 4
+            indicators = ["◐", "◓", "◑", "◒"]
+            base_status = "Converting" if self.bytes_copied == 0 else "Copying"
+            self.status_var.set(f"{indicators[self.activity_counter]} {base_status}...")
+
+            # Schedule next update (every 500ms)
+            self.elapsed_timer_id = self.root.after(500, self.update_elapsed_time)
+
+    def stop_elapsed_timer(self):
+        """Stop the elapsed time timer."""
+        if self.elapsed_timer_id:
+            self.root.after_cancel(self.elapsed_timer_id)
+            self.elapsed_timer_id = None
 
     def update_disc_info(self):
         """Get and display disc information."""
@@ -679,9 +712,13 @@ class DVDtoISOConverter:
         self.start_btn.configure(state=tk.DISABLED, bg=self.s.BORDER)
         self.cancel_btn.configure(state=tk.NORMAL, bg=self.s.DANGER, fg=self.s.WHITE)
         self.update_progress(0)
-        self.status_var.set("Starting...")
+        self.status_var.set("◐ Initializing...")
+        self.activity_counter = 0
         self.log(f"Converting {dev} → {os.path.basename(out)}")
-        
+
+        # Start the elapsed time timer
+        self.start_elapsed_timer()
+
         threading.Thread(target=self.run_conversion, args=(dev, out), daemon=True).start()
     
     def run_conversion(self, dev, out):
@@ -701,29 +738,111 @@ class DVDtoISOConverter:
                 self.root.after(0, self.done, False, str(e))
     
     def convert_windows(self, dev, out):
-        """Windows PowerShell conversion."""
+        """Windows PowerShell conversion with reliable progress reporting."""
+        # PowerShell script with forced output flushing and better error handling
         script = f'''
+$ErrorActionPreference = "Stop"
 $drive = "{dev[0]}:"
-$out = "{out}"
-$disc = Get-Volume -DriveLetter "{dev[0]}" -ErrorAction SilentlyContinue
-if (-not $disc) {{ throw "No disc in drive" }}
-Write-Host "SIZE:0"
-$stream = [System.IO.File]::OpenRead("\\\\.\\" + $drive)
-$writer = [System.IO.File]::OpenWrite($out)
-$buf = New-Object byte[] (2048 * 256)
-$total = 0
-try {{ $size = $stream.Length; Write-Host "SIZE:$size" }} catch {{ $size = 4700000000; Write-Host "SIZE:$size" }}
-Write-Host ("PROGRESS:2:" + $total + ":" + $size)
-while (($n = $stream.Read($buf, 0, $buf.Length)) -gt 0) {{
-    $writer.Write($buf, 0, $n)
-    $total += $n
-    $pct = [int](($total / $size) * 100)
-    if ($pct -gt 99) {{ $pct = 99 }}
-    Write-Host ("PROGRESS:" + $pct + ":" + $total + ":" + $size)
+$outPath = "{out}"
+
+# Force immediate output
+$host.UI.RawUI.FlushInputBuffer() 2>$null
+
+Write-Host "STATUS:Checking disc..."
+[Console]::Out.Flush()
+
+# Check if disc is present
+$vol = Get-Volume -DriveLetter "{dev[0]}" -ErrorAction SilentlyContinue
+if (-not $vol) {{
+    Write-Host "ERROR:No disc found in drive {dev[0]}:"
+    exit 1
 }}
-$stream.Close(); $writer.Close()
+
+Write-Host "STATUS:Opening disc for reading..."
+[Console]::Out.Flush()
+
+try {{
+    $stream = [System.IO.File]::OpenRead("\\\\.\\" + $drive)
+}} catch {{
+    Write-Host ("ERROR:Cannot open disc - " + $_.Exception.Message)
+    exit 1
+}}
+
+# Get disc size
+$size = 0
+try {{
+    $size = $stream.Length
+}} catch {{
+    # Estimate for standard DVD
+    $size = 4700000000
+}}
+
+Write-Host ("SIZE:" + $size)
+[Console]::Out.Flush()
+
+Write-Host "STATUS:Creating output file..."
+[Console]::Out.Flush()
+
+try {{
+    $writer = [System.IO.File]::OpenWrite($outPath)
+}} catch {{
+    $stream.Close()
+    Write-Host ("ERROR:Cannot create output file - " + $_.Exception.Message)
+    exit 1
+}}
+
+# Use larger buffer for performance (1MB)
+$bufSize = 1048576
+$buf = New-Object byte[] $bufSize
+$total = [long]0
+$lastPct = -1
+$lastReport = [DateTime]::Now
+
+Write-Host "STATUS:Copying disc data..."
+Write-Host ("PROGRESS:0:" + $total + ":" + $size)
+[Console]::Out.Flush()
+
+try {{
+    while ($true) {{
+        $n = $stream.Read($buf, 0, $bufSize)
+        if ($n -le 0) {{ break }}
+
+        $writer.Write($buf, 0, $n)
+        $total += $n
+
+        # Calculate percentage
+        $pct = 0
+        if ($size -gt 0) {{
+            $pct = [int](($total / $size) * 100)
+            if ($pct -gt 99) {{ $pct = 99 }}
+        }}
+
+        # Report progress every 1% change OR every 500ms
+        $now = [DateTime]::Now
+        $elapsed = ($now - $lastReport).TotalMilliseconds
+        if (($pct -ne $lastPct) -or ($elapsed -gt 500)) {{
+            Write-Host ("PROGRESS:" + $pct + ":" + $total + ":" + $size)
+            [Console]::Out.Flush()
+            $lastPct = $pct
+            $lastReport = $now
+        }}
+    }}
+}} catch {{
+    $stream.Close()
+    $writer.Close()
+    Write-Host ("ERROR:Read/write error - " + $_.Exception.Message)
+    exit 1
+}}
+
+$stream.Close()
+$writer.Close()
+
 Write-Host ("PROGRESS:100:" + $total + ":" + $size)
+Write-Host "STATUS:Complete"
+[Console]::Out.Flush()
 '''
+        self.root.after(0, lambda: self.log("Starting Windows disc read...", min_verbosity=2))
+
         self.process = subprocess.Popen(
             ['powershell', '-ExecutionPolicy', 'Bypass', '-Command', script],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -798,7 +917,9 @@ Write-Host ("PROGRESS:100:" + $total + ":" + $size)
             raise Exception(self.process.stderr.read() if self.process.stderr else "Unknown error")
 
     def _monitor_with_bytes(self):
-        """Watch subprocess output with bytes tracking."""
+        """Watch subprocess output with bytes tracking, status updates, and error handling."""
+        error_msg = None
+
         while self.process and self.process.poll() is None and self.is_converting:
             line = self.process.stdout.readline()
             if line:
@@ -824,14 +945,33 @@ Write-Host ("PROGRESS:100:" + $total + ":" + $size)
                             self.root.after(0, lambda s=size: self.log(f"Disc size: {self.format_size(s)}", min_verbosity=2))
                     except:
                         pass
+                elif line.startswith("STATUS:"):
+                    # Log status messages
+                    status = line.split(":", 1)[1] if ":" in line else line
+                    self.root.after(0, lambda s=status: self.log(s, min_verbosity=2))
+                elif line.startswith("ERROR:"):
+                    # Capture error message
+                    error_msg = line.split(":", 1)[1] if ":" in line else "Unknown error"
+                    self.root.after(0, lambda e=error_msg: self.log(f"Error: {e}", "error"))
 
+        # Check for errors
+        if error_msg and self.is_converting:
+            raise Exception(error_msg)
+
+        # Check process return code
         if self.process and self.process.returncode and self.is_converting:
-            raise Exception(self.process.stderr.read() if self.process.stderr else "Unknown error")
+            stderr_output = ""
+            try:
+                stderr_output = self.process.stderr.read()
+            except:
+                pass
+            raise Exception(stderr_output if stderr_output else "Conversion failed")
     
     def done(self, ok, msg):
         """Conversion finished."""
         self.is_converting = False
         self.process = None
+        self.stop_elapsed_timer()  # Stop the timer
         self.start_btn.configure(state=tk.NORMAL, bg=self.s.PRIMARY)
         self.cancel_btn.configure(state=tk.DISABLED, bg=self.s.BG, fg=self.s.TEXT_SECONDARY)
 
@@ -883,9 +1023,10 @@ Write-Host ("PROGRESS:100:" + $total + ":" + $size)
         """Stop conversion."""
         if self.is_converting and messagebox.askyesno("Cancel?", "Stop the conversion?"):
             self.is_converting = False
+            self.stop_elapsed_timer()  # Stop the timer
             if self.process:
                 self.process.terminate()
-            
+
             self.status_var.set("Cancelled")
             self.log("Cancelled", "warning")
             self.start_btn.configure(state=tk.NORMAL, bg=self.s.PRIMARY)
