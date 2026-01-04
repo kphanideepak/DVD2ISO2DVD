@@ -2,9 +2,12 @@
 
 A cross-platform graphical utility for converting DVDs to ISO images, with planned support for burning ISOs back to DVD.
 
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-green)
+
+**Author:** Phanideepak K | **Website:** [kalluriit.com.au](https://kalluriit.com.au)
 
 ## Features
 
@@ -308,5 +311,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Discussions**: [GitHub Discussions](https://github.com/kphanideepak/DVD2ISO2DVD/discussions)
 
 ---
+
+## Disclaimer
+
+This software is provided for **personal backup purposes only**. Users are responsible for ensuring their use complies with applicable copyright laws in their jurisdiction. The author assumes no liability for misuse of this software.
 
 **Note**: This tool is intended for backing up discs you own. Please respect copyright laws in your jurisdiction.

@@ -3,10 +3,18 @@
 DVD to ISO Converter Tool
 Phase 1: Convert DVD to ISO
 Phase 2 (planned): Burn ISO to DVD
+
+Copyright (c) 2025 Phanideepak K - kalluriit.com.au
+
+DISCLAIMER: This software is provided for personal backup purposes only.
+Users are responsible for ensuring their use complies with applicable
+copyright laws in their jurisdiction. The author assumes no liability
+for misuse of this software.
 """
 
 __version__ = "1.1.0"
 __author__ = "Phanideepak K"
+__website__ = "https://kalluriit.com.au"
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -15,6 +23,7 @@ import threading
 import os
 import platform
 import re
+import webbrowser
 from datetime import datetime
 
 
@@ -117,7 +126,16 @@ class DVDtoISOConverter:
         title_area = tk.Frame(header, bg=s.BG)
         title_area.pack(side=tk.LEFT, fill=tk.Y)
         tk.Label(title_area, text="DVD to ISO Converter", font=s.TITLE, bg=s.BG, fg=s.TEXT).pack(anchor="w")
-        tk.Label(title_area, text="Create perfect backups of your discs", font=s.SMALL, bg=s.BG, fg=s.TEXT_SECONDARY).pack(anchor="w")
+
+        subtitle_row = tk.Frame(title_area, bg=s.BG)
+        subtitle_row.pack(anchor="w")
+        tk.Label(subtitle_row, text="Create perfect backups of your discs", font=s.SMALL, bg=s.BG, fg=s.TEXT_SECONDARY).pack(side=tk.LEFT)
+        tk.Label(subtitle_row, text=" • ", font=s.SMALL, bg=s.BG, fg=s.TEXT_LIGHT).pack(side=tk.LEFT)
+        website_link = tk.Label(subtitle_row, text="kalluriit.com.au", font=s.SMALL, bg=s.BG, fg=s.PRIMARY, cursor="hand2")
+        website_link.pack(side=tk.LEFT)
+        website_link.bind("<Button-1>", lambda e: webbrowser.open(__website__))
+        website_link.bind("<Enter>", lambda e: website_link.configure(font=(s.FONT, 9, "underline")))
+        website_link.bind("<Leave>", lambda e: website_link.configure(font=s.SMALL))
         
         # Version and phase badge
         badge_area = tk.Frame(header, bg=s.BG)
