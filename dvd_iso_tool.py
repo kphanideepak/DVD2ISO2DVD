@@ -5,6 +5,9 @@ Phase 1: Convert DVD to ISO
 Phase 2 (planned): Burn ISO to DVD
 """
 
+__version__ = "1.1.0"
+__author__ = "Phanideepak K"
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import subprocess
@@ -116,7 +119,13 @@ class DVDtoISOConverter:
         tk.Label(title_area, text="DVD to ISO Converter", font=s.TITLE, bg=s.BG, fg=s.TEXT).pack(anchor="w")
         tk.Label(title_area, text="Create perfect backups of your discs", font=s.SMALL, bg=s.BG, fg=s.TEXT_SECONDARY).pack(anchor="w")
         
-        badge = tk.Frame(header, bg=s.PRIMARY, padx=10, pady=3)
+        # Version and phase badge
+        badge_area = tk.Frame(header, bg=s.BG)
+        badge_area.pack(side=tk.RIGHT)
+
+        tk.Label(badge_area, text=f"v{__version__}", font=s.SMALL, bg=s.BG, fg=s.TEXT_LIGHT).pack(side=tk.RIGHT, padx=(8, 0))
+
+        badge = tk.Frame(badge_area, bg=s.PRIMARY, padx=10, pady=3)
         badge.pack(side=tk.RIGHT)
         tk.Label(badge, text="PHASE 1", font=(s.FONT, 8, "bold"), bg=s.PRIMARY, fg=s.WHITE).pack()
         
