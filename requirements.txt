@@ -1,0 +1,16 @@
+# DVD ISO Tool - Requirements
+# Core dependencies for running the application
+
+# tkinter is part of Python standard library and typically included
+# If missing, install via system package manager:
+#   - Ubuntu/Debian: sudo apt install python3-tk
+#   - Fedora: sudo dnf install python3-tkinter
+#   - macOS: brew install python-tk
+
+# No additional pip packages required for Phase 1
+# The application uses only Python standard library modules:
+#   - tkinter (GUI)
+#   - subprocess (system commands)
+#   - threading (background operations)
+#   - os, platform, pathlib (system utilities)
+#   - re (regex for parsing)
