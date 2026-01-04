@@ -463,52 +463,76 @@ class DVDtoISOConverter:
         """Get disc info on Windows."""
         import ctypes
         letter = device[0]
-        drive_type = ctypes.windll.kernel32.GetDriveTypeW(f"{letter}:\\")
 
         # Get volume info
         vol = ctypes.create_unicode_buffer(1024)
         fs = ctypes.create_unicode_buffer(1024)
         ctypes.windll.kernel32.GetVolumeInformationW(f"{letter}:\\", vol, 1024, None, None, None, fs, 1024)
 
-        label = vol.value or "Unknown"
-        filesystem = fs.value or "Unknown"
+        label = vol.value if vol.value else None
+        filesystem = fs.value or ""
 
-        # Get size via PowerShell
-        try:
-            r = subprocess.run(['powershell', '-Command',
-                f'(Get-Volume -DriveLetter "{letter}").Size'],
-                capture_output=True, text=True, timeout=5,
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-            size = int(r.stdout.strip()) if r.stdout.strip() else 0
-            size_str = self.format_size(size)
-        except:
-            size_str = "Unknown"
+        # Get size via multiple methods
+        size = 0
 
-        disc_type = "DVD" if drive_type == 5 else "CD"
-        return f"{disc_type} | {label} | {size_str} | {filesystem}"
+        # Method 1: WMI (most reliable for optical drives)
+        if size == 0:
+            try:
+                r = subprocess.run(['powershell', '-Command',
+                    f'(Get-WmiObject Win32_LogicalDisk -Filter "DeviceID=\'{letter}:\'").Size'],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                if r.stdout.strip():
+                    size = int(r.stdout.strip())
+            except:
+                pass
+
+        # Method 2: CIM fallback
+        if size == 0:
+            try:
+                r = subprocess.run(['powershell', '-Command',
+                    f'(Get-CimInstance Win32_LogicalDisk -Filter "DeviceID=\'{letter}:\'").Size'],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                if r.stdout.strip():
+                    size = int(r.stdout.strip())
+            except:
+                pass
+
+        # Store for progress calculation
+        if size > 0:
+            self.total_bytes = size
+
+        # Build info string: Label | Size | Filesystem
+        parts = []
+        if label:
+            parts.append(label)
+        if size > 0:
+            parts.append(self.format_size(size))
+        if filesystem:
+            parts.append(filesystem)
+
+        return " | ".join(parts) if parts else "Disc inserted"
 
     def _get_disc_info_linux(self, device):
         """Get disc info on Linux."""
-        info_parts = []
-
-        # Get disc type and size
-        try:
-            r = subprocess.run(['blockdev', '--getsize64', device], capture_output=True, text=True, timeout=5)
-            size = int(r.stdout.strip()) if r.stdout.strip() else 0
-            self.total_bytes = size  # Store for progress calculation
-            disc_type = "DVD" if size > 700 * 1024 * 1024 else "CD"
-            info_parts.append(disc_type)
-            info_parts.append(self.format_size(size))
-        except:
-            pass
+        label = None
+        size = 0
+        filesystem = None
 
         # Get label
         try:
             r = subprocess.run(['blkid', '-o', 'value', '-s', 'LABEL', device],
                              capture_output=True, text=True, timeout=5)
-            label = r.stdout.strip()
-            if label:
-                info_parts.insert(1, label)
+            label = r.stdout.strip() if r.stdout.strip() else None
+        except:
+            pass
+
+        # Get size
+        try:
+            r = subprocess.run(['blockdev', '--getsize64', device], capture_output=True, text=True, timeout=5)
+            size = int(r.stdout.strip()) if r.stdout.strip() else 0
+            self.total_bytes = size  # Store for progress calculation
         except:
             pass
 
@@ -516,13 +540,20 @@ class DVDtoISOConverter:
         try:
             r = subprocess.run(['blkid', '-o', 'value', '-s', 'TYPE', device],
                              capture_output=True, text=True, timeout=5)
-            fs = r.stdout.strip()
-            if fs:
-                info_parts.append(fs.upper())
+            filesystem = r.stdout.strip().upper() if r.stdout.strip() else None
         except:
             pass
 
-        return " | ".join(info_parts) if info_parts else "Disc inserted"
+        # Build info string: Label | Size | Filesystem
+        parts = []
+        if label:
+            parts.append(label)
+        if size > 0:
+            parts.append(self.format_size(size))
+        if filesystem:
+            parts.append(filesystem)
+
+        return " | ".join(parts) if parts else "Disc inserted"
 
     def _get_disc_info_macos(self, device):
         """Get disc info on macOS."""
@@ -534,18 +565,31 @@ class DVDtoISOConverter:
                     key, _, value = line.partition(':')
                     info[key.strip()] = value.strip()
 
-            name = info.get('Volume Name', 'Unknown')
-            size = info.get('Total Size', info.get('Disk Size', 'Unknown'))
-            fs = info.get('File System Personality', info.get('Type (Bundle)', 'Unknown'))
+            label = info.get('Volume Name', None)
+            if label == 'Not applicable':
+                label = None
+            size_str = info.get('Total Size', info.get('Disk Size', None))
+            filesystem = info.get('File System Personality', info.get('Type (Bundle)', None))
 
-            # Extract size number
-            if size and 'Unknown' not in size:
-                # Parse size like "4.7 GB (4700000000 Bytes)"
-                size_match = re.search(r'[\d.]+\s*[GMKT]B', size)
-                size = size_match.group(0) if size_match else size.split()[0]
+            # Extract size in bytes for progress calculation
+            if size_str:
+                bytes_match = re.search(r'\((\d+)\s*Bytes\)', size_str)
+                if bytes_match:
+                    self.total_bytes = int(bytes_match.group(1))
+                # Extract human-readable size
+                size_match = re.search(r'[\d.]+\s*[GMKT]B', size_str)
+                size_str = size_match.group(0) if size_match else None
 
-            disc_type = "DVD" if 'DVD' in str(info) else "CD"
-            return f"{disc_type} | {name} | {size} | {fs}"
+            # Build info string: Label | Size | Filesystem
+            parts = []
+            if label:
+                parts.append(label)
+            if size_str:
+                parts.append(size_str)
+            if filesystem and filesystem != 'Unknown':
+                parts.append(filesystem)
+
+            return " | ".join(parts) if parts else "Disc inserted"
         except:
             return "Disc inserted"
 
