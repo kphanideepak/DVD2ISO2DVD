@@ -1,8 +1,8 @@
-# DVD ↔ ISO Tool
+# DVD & ISO Tool
 
-A cross-platform graphical utility for converting DVDs to ISO images, with planned support for burning ISOs back to DVD.
+A cross-platform graphical utility for converting DVDs to ISO images and creating bootable USB drives from ISO files.
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
 ![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -11,7 +11,7 @@ A cross-platform graphical utility for converting DVDs to ISO images, with plann
 
 ## Features
 
-### Phase 1 (Current)
+### DVD → ISO (Phase 1)
 - ✅ Convert physical DVD/CD to ISO image
 - ✅ Cross-platform GUI using tkinter
 - ✅ Automatic DVD drive detection
@@ -22,10 +22,18 @@ A cross-platform graphical utility for converting DVDs to ISO images, with plann
 - ✅ Auto-eject option after completion
 - ✅ Cancel operation support
 
-### Phase 2 (Planned)
+### ISO → USB (New in v1.2.0)
+- ✅ Create bootable USB drives from ISO images
+- ✅ Automatic ISO type detection (Windows/Linux)
+- ✅ Support for Linux hybrid ISOs (direct DD write)
+- ✅ **Full Windows ISO support** (FAT32 + NTFS dual partition for >4GB files)
+- ✅ Boot mode selection (BIOS + UEFI / UEFI only / BIOS only)
+- ✅ USB drive detection with safety warnings
+- ✅ Real-time progress tracking
+- ✅ Cross-platform: Windows, macOS, Linux
+
+### Future Plans
 - ⬜ Burn ISO images to DVD/CD
-- ⬜ Burn speed selection
-- ⬜ Post-burn verification
 - ⬜ Multi-session disc support
 
 ## Requirements
@@ -285,6 +293,17 @@ python dvd_iso_tool.py
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Changelog
+
+### v1.2.0 (ISO → USB)
+- Create bootable USB drives from ISO images
+- Automatic ISO type detection (Windows/Linux hybrid)
+- Support for Linux hybrid ISOs (direct DD write)
+- **Full Windows ISO support** with dual partition (FAT32 EFI + NTFS data)
+- Handles Windows install.wim files >4GB
+- Boot mode selection (BIOS + UEFI / UEFI only / BIOS only)
+- USB drive detection with safety warnings
+- Mode selector UI to toggle between DVD→ISO and ISO→USB
+- Cross-platform support (Windows, macOS, Linux)
 
 ### v1.1.0 (Phase 1 Enhanced)
 - Three-level verbosity logging (Normal/Verbose/Debug)
