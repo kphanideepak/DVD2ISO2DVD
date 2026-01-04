@@ -349,10 +349,45 @@ class DVDtoISOConverter:
                 time_str = f"{m:02d}:{sec:02d}"
             self.time_label.configure(text=f"Elapsed: {time_str}")
 
+            # Fallback: Check output file size if no progress updates received
+            out_path = self.output_path.get()
+            if out_path and os.path.exists(out_path):
+                try:
+                    file_size = os.path.getsize(out_path)
+                    if file_size > self.bytes_copied:
+                        # Update from file size
+                        self.bytes_copied = file_size
+                        # Calculate speed from file growth
+                        if elapsed > 0:
+                            self.current_speed = file_size / elapsed
+                            self.speed_label.configure(text=f"Speed: {self.format_speed(self.current_speed)}")
+                        # Update bytes display
+                        if self.total_bytes > 0:
+                            pct = min(99, int((file_size / self.total_bytes) * 100))
+                            self.percent_label.configure(text=f"{pct}%")
+                            self.bytes_label.configure(
+                                text=f"{self.format_size(file_size)} / {self.format_size(self.total_bytes)}"
+                            )
+                            # Update progress bar
+                            w = self.prog_bar_bg.winfo_width()
+                            self.prog_fill.place(x=0, y=0, relheight=1, width=int((pct/100)*w))
+                            # Calculate ETA
+                            if self.current_speed > 0:
+                                remaining = self.total_bytes - file_size
+                                eta = remaining / self.current_speed
+                                self.eta_label.configure(text=f"ETA: {self.format_eta(eta)}")
+                        else:
+                            self.bytes_label.configure(text=f"{self.format_size(file_size)} copied")
+                except:
+                    pass
+
             # Update activity indicator in status
             self.activity_counter = (self.activity_counter + 1) % 4
             indicators = ["◐", "◓", "◑", "◒"]
-            base_status = "Converting" if self.bytes_copied == 0 else "Copying"
+            if self.bytes_copied > 0:
+                base_status = "Copying"
+            else:
+                base_status = "Initializing"
             self.status_var.set(f"{indicators[self.activity_counter]} {base_status}...")
 
             # Schedule next update (every 500ms)
@@ -570,6 +605,16 @@ class DVDtoISOConverter:
     
     def update_progress(self, pct, bytes_copied=None, total_bytes=None):
         """Update progress display with optional speed/ETA calculation."""
+        # Update bytes tracking first
+        if bytes_copied is not None and bytes_copied > 0:
+            self.bytes_copied = bytes_copied
+        if total_bytes is not None and total_bytes > 0:
+            self.total_bytes = total_bytes
+
+        # Recalculate percentage if we have bytes info but pct is 0
+        if pct == 0 and self.bytes_copied > 0 and self.total_bytes > 0:
+            pct = min(99, int((self.bytes_copied / self.total_bytes) * 100))
+
         self.progress_var.set(pct)
         self.percent_label.configure(text=f"{int(pct)}%")
 
@@ -577,31 +622,34 @@ class DVDtoISOConverter:
         w = self.prog_bar_bg.winfo_width()
         self.prog_fill.place(x=0, y=0, relheight=1, width=int((pct/100)*w))
 
-        # Update bytes tracking
-        if bytes_copied is not None:
-            self.bytes_copied = bytes_copied
-        if total_bytes is not None:
-            self.total_bytes = total_bytes
-
         now = datetime.now()
 
         if self.start_time and self.is_converting:
             elapsed = (now - self.start_time).total_seconds()
-            m, sec = divmod(int(elapsed), 60)
-            self.time_label.configure(text=f"Elapsed: {m:02d}:{sec:02d}")
 
-            # Calculate speed (update every 0.5 seconds to smooth it out)
-            if self.last_speed_time is None or (now - self.last_speed_time).total_seconds() >= 0.5:
-                if self.last_speed_time and self.bytes_copied > self.last_speed_bytes:
-                    time_delta = (now - self.last_speed_time).total_seconds()
-                    bytes_delta = self.bytes_copied - self.last_speed_bytes
-                    if time_delta > 0:
-                        self.current_speed = bytes_delta / time_delta
+            # Calculate speed from elapsed time and bytes copied (more reliable)
+            if elapsed > 0 and self.bytes_copied > 0:
+                # Use overall average speed for stability
+                avg_speed = self.bytes_copied / elapsed
 
-                self.last_speed_time = now
-                self.last_speed_bytes = self.bytes_copied
+                # Also calculate recent speed for responsiveness
+                if self.last_speed_time is None or (now - self.last_speed_time).total_seconds() >= 1.0:
+                    if self.last_speed_time and self.bytes_copied > self.last_speed_bytes:
+                        time_delta = (now - self.last_speed_time).total_seconds()
+                        bytes_delta = self.bytes_copied - self.last_speed_bytes
+                        if time_delta > 0:
+                            recent_speed = bytes_delta / time_delta
+                            # Blend recent and average for smooth display
+                            self.current_speed = (recent_speed * 0.7) + (avg_speed * 0.3)
 
-            # Update speed label
+                    self.last_speed_time = now
+                    self.last_speed_bytes = self.bytes_copied
+
+                # If no recent speed calculated yet, use average
+                if self.current_speed == 0:
+                    self.current_speed = avg_speed
+
+            # Always update speed label if we have speed data
             if self.current_speed > 0:
                 self.speed_label.configure(text=f"Speed: {self.format_speed(self.current_speed)}")
 
@@ -611,15 +659,20 @@ class DVDtoISOConverter:
                     eta_seconds = remaining_bytes / self.current_speed
                     self.eta_label.configure(text=f"ETA: {self.format_eta(eta_seconds)}")
                 elif pct >= 100:
-                    self.eta_label.configure(text="ETA: Done")
+                    self.eta_label.configure(text="Done")
+                else:
+                    self.eta_label.configure(text="Calculating...")
+            else:
+                self.speed_label.configure(text="Calculating...")
 
-            # Update bytes label
-            if self.bytes_copied > 0 and self.total_bytes > 0:
-                self.bytes_label.configure(
-                    text=f"{self.format_size(self.bytes_copied)} / {self.format_size(self.total_bytes)}"
-                )
-            elif self.bytes_copied > 0:
-                self.bytes_label.configure(text=f"{self.format_size(self.bytes_copied)}")
+            # Always update bytes label - show what we have
+            if self.bytes_copied > 0:
+                if self.total_bytes > 0:
+                    self.bytes_label.configure(
+                        text=f"{self.format_size(self.bytes_copied)} / {self.format_size(self.total_bytes)}"
+                    )
+                else:
+                    self.bytes_label.configure(text=f"{self.format_size(self.bytes_copied)} copied")
 
             # Log verbose progress updates (every 5%)
             if pct > 0 and pct % 5 == 0 and self.current_speed > 0:
@@ -745,9 +798,6 @@ $ErrorActionPreference = "Stop"
 $drive = "{dev[0]}:"
 $outPath = "{out}"
 
-# Force immediate output
-$host.UI.RawUI.FlushInputBuffer() 2>$null
-
 Write-Host "STATUS:Checking disc..."
 [Console]::Out.Flush()
 
@@ -758,6 +808,41 @@ if (-not $vol) {{
     exit 1
 }}
 
+# Get disc size using multiple methods
+$size = [long]0
+
+# Method 1: Try WMI (most reliable for optical drives)
+Write-Host "STATUS:Detecting disc size..."
+[Console]::Out.Flush()
+try {{
+    $wmiDisk = Get-WmiObject -Query "SELECT Size FROM Win32_LogicalDisk WHERE DeviceID='{dev[0]}:'" -ErrorAction SilentlyContinue
+    if ($wmiDisk -and $wmiDisk.Size) {{
+        $size = [long]$wmiDisk.Size
+        Write-Host ("STATUS:WMI detected size: " + $size)
+    }}
+}} catch {{ }}
+
+# Method 2: Try CIM if WMI failed
+if ($size -eq 0) {{
+    try {{
+        $cimDisk = Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DeviceID='{dev[0]}:'" -ErrorAction SilentlyContinue
+        if ($cimDisk -and $cimDisk.Size) {{
+            $size = [long]$cimDisk.Size
+            Write-Host ("STATUS:CIM detected size: " + $size)
+        }}
+    }} catch {{ }}
+}}
+
+# Method 3: Use a reasonable default based on disc type
+if ($size -eq 0) {{
+    # Default to dual-layer DVD size (8.5 GB) as safe upper bound
+    $size = [long]8500000000
+    Write-Host "STATUS:Using estimated size (8.5 GB)"
+}}
+
+Write-Host ("SIZE:" + $size)
+[Console]::Out.Flush()
+
 Write-Host "STATUS:Opening disc for reading..."
 [Console]::Out.Flush()
 
@@ -767,18 +852,6 @@ try {{
     Write-Host ("ERROR:Cannot open disc - " + $_.Exception.Message)
     exit 1
 }}
-
-# Get disc size
-$size = 0
-try {{
-    $size = $stream.Length
-}} catch {{
-    # Estimate for standard DVD
-    $size = 4700000000
-}}
-
-Write-Host ("SIZE:" + $size)
-[Console]::Out.Flush()
 
 Write-Host "STATUS:Creating output file..."
 [Console]::Out.Flush()
@@ -837,7 +910,8 @@ try {{
 $stream.Close()
 $writer.Close()
 
-Write-Host ("PROGRESS:100:" + $total + ":" + $size)
+# Update size to actual bytes written
+Write-Host ("PROGRESS:100:" + $total + ":" + $total)
 Write-Host "STATUS:Complete"
 [Console]::Out.Flush()
 '''
