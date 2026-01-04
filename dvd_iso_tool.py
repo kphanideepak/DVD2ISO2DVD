@@ -713,16 +713,16 @@ $writer = [System.IO.File]::OpenWrite($out)
 $buf = New-Object byte[] (2048 * 256)
 $total = 0
 try {{ $size = $stream.Length; Write-Host "SIZE:$size" }} catch {{ $size = 4700000000; Write-Host "SIZE:$size" }}
-Write-Host "PROGRESS:2:$total:$size"
+Write-Host ("PROGRESS:2:" + $total + ":" + $size)
 while (($n = $stream.Read($buf, 0, $buf.Length)) -gt 0) {{
     $writer.Write($buf, 0, $n)
     $total += $n
     $pct = [int](($total / $size) * 100)
     if ($pct -gt 99) {{ $pct = 99 }}
-    Write-Host "PROGRESS:$pct`:$total`:$size"
+    Write-Host ("PROGRESS:" + $pct + ":" + $total + ":" + $size)
 }}
 $stream.Close(); $writer.Close()
-Write-Host "PROGRESS:100:$total:$size"
+Write-Host ("PROGRESS:100:" + $total + ":" + $size)
 '''
         self.process = subprocess.Popen(
             ['powershell', '-ExecutionPolicy', 'Bypass', '-Command', script],
